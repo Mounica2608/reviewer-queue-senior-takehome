@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
   applyReviewAction,
   fetchReviewItems,
   type ReviewAction,
   type ReviewItem
 } from "./api";
+
 
 const currentReviewer = "alex";
 const items = ref<ReviewItem[]>([]);
@@ -14,17 +15,20 @@ const isLoading = ref(false);
 const errorMessage = ref<string | null>(null);
 const pendingAction = ref<ReviewAction | null>(null);
 
-const selectedItem = computed(() =>
-  items.value.find((item) => item.id === selectedId.value) ?? items.value[0] ?? null
-);
+
+const selectedItem = computed(() => {
+  return items.value.find((item) => item.id === selectedId.value) || null;
+});
+
 
 async function loadItems() {
   isLoading.value = true;
   errorMessage.value = null;
 
+
   try {
     items.value = await fetchReviewItems();
-    selectedId.value = selectedItem.value?.id ?? null;
+    selectedId.value = items.value[0]?.id ?? null;
   } catch (error) {
     errorMessage.value = "Something went wrong loading the queue.";
   } finally {
@@ -32,21 +36,32 @@ async function loadItems() {
   }
 }
 
+
+watch(items, () => {
+  if (!items.value.find(i => i.id === selectedId.value)) {
+    selectedId.value = items.value[0]?.id ?? null;
+  }
+});
+
+
 async function performAction(action: ReviewAction) {
   if (!selectedItem.value) return;
+
 
   pendingAction.value = action;
   errorMessage.value = null;
 
+
   try {
-    const updated = await applyReviewAction(selectedItem.value.id, action, currentReviewer);
-    items.value = items.value.map((item) => (item.id === updated.id ? updated : item));
+    await applyReviewAction(selectedItem.value.id, action, currentReviewer);
+    await loadItems();
   } catch (error) {
     errorMessage.value = "That action could not be completed.";
   } finally {
     pendingAction.value = null;
   }
 }
+
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -55,8 +70,10 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+
 onMounted(loadItems);
 </script>
+
 
 <template>
   <main class="page-shell">
@@ -68,8 +85,10 @@ onMounted(loadItems);
       <div class="reviewer">Signed in as {{ currentReviewer }}</div>
     </header>
 
+
     <p v-if="errorMessage" class="error-banner">{{ errorMessage }}</p>
     <p v-if="isLoading" class="loading">Loading review items...</p>
+
 
     <section v-else class="workspace">
       <aside class="queue-list" aria-label="Review queue">
@@ -82,10 +101,15 @@ onMounted(loadItems);
           @click="selectedId = item.id"
         >
           <span class="queue-title">{{ item.title }}</span>
-          <span class="queue-meta">{{ item.risk_level }} risk · {{ item.customer_tier }}</span>
-          <span class="queue-meta">{{ item.status }} · {{ item.assigned_reviewer ?? "unassigned" }}</span>
+          <span class="queue-meta">
+            {{ item.risk_level }} risk · {{ item.customer_tier }}
+          </span>
+          <span class="queue-meta">
+            {{ item.status }} · {{ item.assigned_reviewer || "Unassigned" }}
+          </span>
         </button>
       </aside>
+
 
       <section v-if="selectedItem" class="detail-panel">
         <div class="detail-header">
@@ -95,6 +119,7 @@ onMounted(loadItems);
           </div>
           <span class="status-pill">{{ selectedItem.status }}</span>
         </div>
+
 
         <dl class="facts">
           <div>
@@ -111,24 +136,48 @@ onMounted(loadItems);
           </div>
           <div>
             <dt>Assignee</dt>
-            <dd>{{ selectedItem.assigned_reviewer ?? "None" }}</dd>
+            <dd>{{ selectedItem.assigned_reviewer || "None" }}</dd>
           </div>
         </dl>
+
 
         <p class="summary">{{ selectedItem.summary }}</p>
         <p class="notes">{{ selectedItem.notes_count }} notes on this item</p>
 
+
         <div class="actions" aria-label="Workflow actions">
-          <button type="button" :disabled="Boolean(pendingAction)" @click="performAction('claim')">
+          <button
+            type="button"
+            :disabled="pendingAction !== null || selectedItem.status !== 'unassigned'"
+            @click="performAction('claim')"
+          >
             Claim
           </button>
-          <button type="button" :disabled="Boolean(pendingAction)" @click="performAction('approve')">
+
+
+          <button
+            type="button"
+            :disabled="pendingAction !== null || selectedItem.status !== 'in_review'"
+            @click="performAction('approve')"
+          >
             Approve
           </button>
-          <button type="button" :disabled="Boolean(pendingAction)" @click="performAction('reject')">
+
+
+          <button
+            type="button"
+            :disabled="pendingAction !== null || selectedItem.status !== 'in_review'"
+            @click="performAction('reject')"
+          >
             Reject
           </button>
-          <button type="button" :disabled="Boolean(pendingAction)" @click="performAction('escalate')">
+
+
+          <button
+            type="button"
+            :disabled="pendingAction !== null || selectedItem.status !== 'in_review'"
+            @click="performAction('escalate')"
+          >
             Escalate
           </button>
         </div>
@@ -136,3 +185,4 @@ onMounted(loadItems);
     </section>
   </main>
 </template>
+
